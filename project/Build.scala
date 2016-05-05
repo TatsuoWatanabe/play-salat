@@ -17,6 +17,7 @@ object ProjectBuild extends Build {
 
     resolvers ++= Seq(
       "play Repository" at "http://repo.typesafe.com/typesafe/simple/maven-releases/",
+      "scalaz-bintray"  at "http://dl.bintray.com/scalaz/releases",
       Resolver.sonatypeRepo("releases"),
       Resolver.sonatypeRepo("snapshots")
     ),
@@ -35,13 +36,7 @@ object ProjectBuild extends Build {
 object Publish {
   lazy val settings = Seq(
     publishMavenStyle := true,
-    publishTo <<= version { (v: String) =>
-      val nexus = "https://oss.sonatype.org/"
-      if (v.trim.endsWith("SNAPSHOT"))
-        Some("sonatype snapshots" at nexus + "content/repositories/snapshots")
-      else
-        Some("sonatype releases"  at nexus + "service/local/staging/deploy/maven2")
-    },
+    publishTo := Some(Resolver.file("play-salat", file("play-salat_1.5.1"))(Patterns(true, Resolver.mavenStyleBasePattern))),
     publishArtifact in Test := false,
     pomIncludeRepository := { _ => false },
     licenses := Seq("Apache 2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")),
