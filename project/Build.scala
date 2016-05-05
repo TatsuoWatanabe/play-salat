@@ -9,7 +9,7 @@ object ProjectBuild extends Build {
     organization := "se.radley",
     description := "MongoDB Salat plugin for PlayFramework 2",
     version := buildVersion,
-    scalaVersion := "2.11.1",
+    scalaVersion := "2.11.8",
     scalacOptions ++= Seq("-unchecked", "-deprecation", "-feature"),
     crossScalaVersions ++= Seq("2.10.4"),
     parallelExecution in Test := false,
