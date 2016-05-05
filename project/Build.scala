@@ -36,7 +36,7 @@ object ProjectBuild extends Build {
 object Publish {
   lazy val settings = Seq(
     publishMavenStyle := true,
-    publishTo := Some(Resolver.file("se.radley", file("play-salat_1.5.1"))(Patterns(true, Resolver.mavenStyleBasePattern))),
+    publishTo := Some(Resolver.file("se.radley", file(""))(Patterns(true, Resolver.mavenStyleBasePattern))),
     publishArtifact in Test := false,
     pomIncludeRepository := { _ => false },
     licenses := Seq("Apache 2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")),
