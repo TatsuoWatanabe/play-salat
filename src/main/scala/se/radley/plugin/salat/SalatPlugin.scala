@@ -4,10 +4,11 @@ import play.api._
 import play.api.mvc._
 import play.api.Play.current
 import com.mongodb.casbah._
-import com.mongodb.{MongoClientOptions, MongoException, ServerAddress, MongoOptions}
+import com.mongodb.{ MongoClientOptions, MongoException, ServerAddress, MongoOptions }
 import com.mongodb.casbah.gridfs.GridFS
 import commons.MongoDBObject
 import com.mongodb.casbah.MongoClientOptions
+import scala.util.Try
 import javax.inject.Inject
 
 class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
@@ -15,26 +16,30 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
   lazy val configuration = app.configuration.getConfig("mongodb").getOrElse(Configuration.empty)
 
   case class MongoSource(
-    val hosts: List[ServerAddress],
-    val dbName: String,
-    val writeConcern: com.mongodb.WriteConcern,
-    val user: Option[String] = None,
-    val password: Option[String] = None,
-    val options: Option[MongoClientOptions],
-    private var conn: MongoClient = null
-  ){
+      val hosts: List[ServerAddress],
+      val dbName: String,
+      val writeConcern: com.mongodb.WriteConcern,
+      val user: Option[String] = None,
+      val password: Option[String] = None,
+      val options: Option[MongoClientOptions],
+      private var conn: MongoClient = null) {
 
     def connection: MongoClient = {
       if (conn == null) {
-        conn = options.map(opts => MongoClient(hosts, opts)).getOrElse(MongoClient(hosts))
 
-        val authOpt = for {
-          u <- user
-          p <- password
-        } yield connection(dbName).authenticate(u, p)
+        val credentials = {
+          val maybe = for {
+            u <- user
+            p <- password
+          } yield MongoCredential.createCredential(u, dbName, p.toArray)
 
-        if (!authOpt.getOrElse(true)) {
-          throw configuration.reportError("mongodb", "Access denied to MongoDB database: [" + dbName + "] with user: [" + user.getOrElse("") + "]")
+          List(maybe).flatten
+        }
+
+        conn = Try( 
+          options.map(MongoClient(hosts, credentials, _)).getOrElse(MongoClient(hosts, credentials))
+        ).getOrElse {
+          throw configuration.reportError("mongodb", s"Access denied to MongoDB database: [$dbName] with user: [${user.getOrElse("")}]")
         }
 
         conn.setWriteConcern(writeConcern)
@@ -69,8 +74,8 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
 
     override def toString() = {
       (if (user.isDefined) user.get + "@" else "") +
-      hosts.map(h => h.getHost + ":" + h.getPort).mkString(", ") +
-      "/" + dbName + options.map(" with Options[" + _ + "]").getOrElse("")
+        hosts.map(h => h.getHost + ":" + h.getPort).mkString(", ") +
+        "/" + dbName + options.map(" with Options[" + _ + "]").getOrElse("")
     }
   }
 
@@ -80,7 +85,7 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
 
     source.getString("uri").map { str =>
       // MongoURI config - http://www.mongodb.org/display/DOCS/Connections
-      val uri = MongoURI(str)
+      val uri = MongoClientURI(str)
       val hosts = uri.hosts.map { host =>
         if (host.contains(':')) {
           val Array(h, p) = host.split(':')
@@ -100,8 +105,8 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
       // Simple config
       val host = source.getString("host").getOrElse("127.0.0.1")
       val port = source.getInt("port").getOrElse(27017)
-      val user:Option[String] = source.getString("user")
-      val password:Option[String] = source.getString("password")
+      val user: Option[String] = source.getString("user")
+      val password: Option[String] = source.getString("password")
 
       // Replica set config
       val hosts: List[ServerAddress] = source.getConfig("replicaset").map { replicaset =>
@@ -136,7 +141,10 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
           try {
             source._2.connection(source._2.dbName).getCollectionNames()
           } catch {
-            case e: MongoException => throw configuration.reportError("mongodb." + source._1, "couldn't connect to [" + source._2.hosts.mkString(", ") + "]", Some(e))
+            case e: MongoException =>
+              Logger("play").debug("error: " + e.printStackTrace)
+
+              throw configuration.reportError("mongodb." + source._1, "couldn't connect to [" + source._2.hosts.mkString(", ") + "]", Some(e))
           } finally {
             Logger("play").info("mongodb [" + source._1 + "] connected at " + source._2)
           }
@@ -145,7 +153,7 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
     }
   }
 
-  override def onStop(){
+  override def onStop() {
     sources.map { source =>
       // @fix See if we can get around the plugin closing connections in testmode
       if (app.mode != Mode.Test)
@@ -167,7 +175,7 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
    * @param sourceName The source name ex. default
    * @return A MongoDB
    */
-  def db(sourceName:String = "default"): MongoDB = source(sourceName).db
+  def db(sourceName: String = "default"): MongoDB = source(sourceName).db
 
   /**
    * Returns MongoCollection that has been configured in application.conf
@@ -175,7 +183,7 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
    * @param sourceName The source name ex. default
    * @return A MongoCollection
    */
-  def collection(collectionName:String, sourceName:String = "default"): MongoCollection = source(sourceName).collection(collectionName)
+  def collection(collectionName: String, sourceName: String = "default"): MongoCollection = source(sourceName).collection(collectionName)
 
   /**
    * Returns Capped MongoCollection that has been configured in application.conf
@@ -185,7 +193,7 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
    * @param sourceName The source name ex. default
    * @return A MongoCollection
    */
-  def cappedCollection(collectionName:String, size: Long, max: Option[Long] = None, sourceName:String = "default"): MongoCollection = source(sourceName).cappedCollection(collectionName, size, max)
+  def cappedCollection(collectionName: String, size: Long, max: Option[Long] = None, sourceName: String = "default"): MongoCollection = source(sourceName).cappedCollection(collectionName, size, max)
 
   /**
    * Returns GridFS for configured source
@@ -193,5 +201,5 @@ class SalatPlugin @Inject() (implicit app: Application) extends Plugin {
    * @param sourceName The source name ex. default
    * @return A GridFS
    */
-  def gridFS(bucketName: String = "fs", sourceName:String = "default"): GridFS = source(sourceName).gridFS(bucketName)
+  def gridFS(bucketName: String = "fs", sourceName: String = "default"): GridFS = source(sourceName).gridFS(bucketName)
 }
